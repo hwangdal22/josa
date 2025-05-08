@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <title>여론조사 결과 시각화</title>
   <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <style>
     body { font-family: sans-serif; padding: 20px; background: #f4f4f4; }
     #chart { width: 100%; height: 600px; }
@@ -12,8 +12,8 @@
   </style>
 </head>
 <body>
-  <h2>여론조사 결과 시각화</h2>
-  <input type="file" id="csvFile" accept=".csv" />
+  <h2>여론조사 결과 시각화 (엑셀 지원)</h2>
+  <input type="file" id="excelFile" accept=".xlsx" />
   <br>
   <label>조사기관 선택:</label>
   <select id="기관선택"></select>
@@ -30,33 +30,57 @@
   <script>
     let allData = [];
 
-    document.getElementById("csvFile").addEventListener("change", function (e) {
+    document.getElementById("excelFile").addEventListener("change", function (e) {
       const file = e.target.files[0];
       if (!file) return;
+      const reader = new FileReader();
 
-      Papa.parse(file, {
-        header: true,
-        skipEmptyLines: true,
-        complete: function (results) {
-          allData = results.data.map(row => ({
+      reader.onload = function (e) {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: "array" });
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        let json = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+
+        // 필수 열 존재 확인
+        const hasRequiredCols = json[0] && ["조사일자", "조사기관", "더불어민주당", "국민의힘", "정의당", "지지정당없음"].every(k => k in json[0]);
+        if (!hasRequiredCols) return alert("엑셀 파일에 필요한 열이 없습니다: 조사일자, 조사기관, 정당들");
+
+        allData = json.map(row => {
+          const date = parseDate(row["조사일자"]);
+          return {
             ...row,
-            조사일: new Date(row["조사일"]),
+            조사일: date,
             더불어민주당: parseFloat(row["더불어민주당"]),
             국민의힘: parseFloat(row["국민의힘"]),
             정의당: parseFloat(row["정의당"]),
             지지정당없음: parseFloat(row["지지정당없음"])
-          })).filter(row => !isNaN(row["더불어민주당"]) && row["조사일"] instanceof Date);
+          };
+        }).filter(row => row.조사일 instanceof Date && !isNaN(row.더불어민주당));
 
-          const 기관들 = [...new Set(allData.map(d => d.조사기관))].sort();
-          const select = document.getElementById("기관선택");
-          select.innerHTML = `<option value="전체">전체</option>` + 기관들.map(k => `<option value="${k}">${k}</option>`).join("");
+        const 기관들 = [...new Set(allData.map(d => d.조사기관))].sort();
+        const select = document.getElementById("기관선택");
+        select.innerHTML = `<option value="전체">전체</option>` + 기관들.map(k => `<option value="${k}">${k}</option>`).join("");
 
-          select.addEventListener("change", drawChart);
-          document.getElementById("기간선택").addEventListener("change", drawChart);
-          drawChart();
-        }
-      });
+        select.addEventListener("change", drawChart);
+        document.getElementById("기간선택").addEventListener("change", drawChart);
+        drawChart();
+      };
+
+      reader.readAsArrayBuffer(file);
     });
+
+    function parseDate(text) {
+      if (typeof text !== 'string') return null;
+      const match = text.match(/(\d{2})\.(\d{2})\.(?:\d{2})?\~?(\d{2})?/);
+      if (!match) return null;
+      const [, yy, mm, dd] = match;
+      try {
+        return new Date(`20${yy}-${mm}-${dd}`);
+      } catch {
+        return null;
+      }
+    }
 
     function drawChart() {
       const 기관 = document.getElementById("기관선택").value;
