@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>여론조사 결과 시각화</title>
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+  <style>
+    body { font-family: sans-serif; padding: 20px; background: #f4f4f4; }
+    #chart { width: 100%; height: 600px; }
+    select, input[type="file"] { padding: 5px; margin: 10px 0; }
+  </style>
+</head>
+<body>
+  <h2>여론조사 결과 시각화</h2>
+  <input type="file" id="csvFile" accept=".csv" />
+  <br>
+  <label>조사기관 선택:</label>
+  <select id="기관선택"></select>
+  <label>기간:</label>
+  <select id="기간선택">
+    <option value="3">3개월</option>
+    <option value="6">6개월</option>
+    <option value="12" selected>12개월</option>
+    <option value="18">18개월</option>
+    <option value="24">24개월</option>
+  </select>
+  <div id="chart"></div>
+
+  <script>
+    let allData = [];
+
+    document.getElementById("csvFile").addEventListener("change", function (e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: function (results) {
+          allData = results.data.map(row => ({
+            ...row,
+            조사일: new Date(row["조사일"]),
+            더불어민주당: parseFloat(row["더불어민주당"]),
+            국민의힘: parseFloat(row["국민의힘"]),
+            정의당: parseFloat(row["정의당"]),
+            지지정당없음: parseFloat(row["지지정당없음"])
+          })).filter(row => !isNaN(row["더불어민주당"]) && row["조사일"] instanceof Date);
+
+          const 기관들 = [...new Set(allData.map(d => d.조사기관))].sort();
+          const select = document.getElementById("기관선택");
+          select.innerHTML = `<option value="전체">전체</option>` + 기관들.map(k => `<option value="${k}">${k}</option>`).join("");
+
+          select.addEventListener("change", drawChart);
+          document.getElementById("기간선택").addEventListener("change", drawChart);
+          drawChart();
+        }
+      });
+    });
+
+    function drawChart() {
+      const 기관 = document.getElementById("기관선택").value;
+      const 기간 = parseInt(document.getElementById("기간선택").value);
+      const today = new Date();
+      const cutoff = new Date(today.setMonth(today.getMonth() - 기간));
+
+      const filtered = allData.filter(d => d.조사일 >= cutoff && (기관 === "전체" || d.조사기관 === 기관));
+      const labels = filtered.map(d => d.조사일.toISOString().slice(0, 10));
+
+      const trace = name => ({
+        x: labels,
+        y: filtered.map(d => d[name]),
+        name: name,
+        mode: 'lines+markers'
+      });
+
+      const data = ["더불어민주당", "국민의힘", "정의당", "지지정당없음"].map(trace);
+
+      Plotly.newPlot("chart", data, {
+        title: `${기관} (${기간}개월)`,
+        xaxis: { title: "날짜" },
+        yaxis: { title: "지지율 (%)" }
+      });
+    }
+  </script>
+</body>
+</html>
